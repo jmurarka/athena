@@ -21,11 +21,16 @@ class Settings(BaseSettings):
     REDIS_PORT: str = "6379"
     REDIS_URL: Optional[str] = None
 
-    # LLM API Keys
+    # LLM API Keys & Provider Settings
+    LLM_MODE: str = "hybrid" # local, hybrid, cloud
+    OLLAMA_BASE_URL: str = "http://localhost:11434"
+    OLLAMA_MODEL: str = "llama3.2:3b"
+    LLAMA_CPP_BASE_URL: Optional[str] = "http://localhost:8080"
     OPENAI_API_KEY: Optional[str] = None
     GEMINI_API_KEY: Optional[str] = None
     ANTHROPIC_API_KEY: Optional[str] = None
     HUGGINGFACE_API_KEY: Optional[str] = None
+
 
     # Supabase Integration
     SUPABASE_URL: Optional[str] = None

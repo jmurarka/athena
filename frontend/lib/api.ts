@@ -30,3 +30,32 @@ export async function fetchWithAuth(endpoint: string, options: RequestInit = {})
 
   return response.json();
 }
+
+export async function getProjectGraph(projectId: string) {
+  return fetchWithAuth(`/api/projects/${projectId}/graph`);
+}
+
+export async function editRequirement(projectId: string, requirementId: string, title: string, description: string) {
+  return fetchWithAuth(`/api/projects/${projectId}/requirements/${requirementId}/edit`, {
+    method: 'POST',
+    body: JSON.stringify({ title, description }),
+  });
+}
+
+export async function editTechDecision(projectId: string, decisionId: string, chosenOption: string) {
+  return fetchWithAuth(`/api/projects/${projectId}/decisions/${decisionId}/edit`, {
+    method: 'POST',
+    body: JSON.stringify({ chosen_option: chosenOption }),
+  });
+}
+
+export async function ingestDocument(projectId: string, filename: string, content: string) {
+  return fetchWithAuth(`/api/projects/${projectId}/documents/ingest`, {
+    method: 'POST',
+    body: JSON.stringify({ filename, content }),
+  });
+}
+
+export async function searchDocuments(projectId: string, query: string) {
+  return fetchWithAuth(`/api/projects/${projectId}/documents/search?query=${encodeURIComponent(query)}`);
+}

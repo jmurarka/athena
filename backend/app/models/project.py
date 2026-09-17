@@ -1,7 +1,7 @@
 import uuid
 import enum
 from sqlalchemy import Column, String, Text, DateTime, ForeignKey, func, Enum as SQLEnum
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from app.core.db import Base
 
@@ -28,6 +28,7 @@ class Project(Base):
         nullable=False,
         index=True
     )
+    health_metrics = Column(JSONB, default=dict, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
@@ -36,3 +37,13 @@ class Project(Base):
     pages = relationship("Page", back_populates="project", cascade="all, delete-orphan")
     canvas_state = relationship("CanvasState", back_populates="project", uselist=False, cascade="all, delete-orphan")
     agent_runs = relationship("AgentRun", back_populates="project", cascade="all, delete-orphan")
+    
+    # ATHENA Graph Relationships
+    requirements = relationship("Requirement", back_populates="project", cascade="all, delete-orphan")
+    features = relationship("Feature", back_populates="project", cascade="all, delete-orphan")
+    components = relationship("ArchitectureComponent", back_populates="project", cascade="all, delete-orphan")
+    decisions = relationship("Decision", back_populates="project", cascade="all, delete-orphan")
+    evidence_claims = relationship("EvidenceClaim", back_populates="project", cascade="all, delete-orphan")
+    validation_issues = relationship("ValidationIssue", back_populates="project", cascade="all, delete-orphan")
+    document_chunks = relationship("DocumentChunk", back_populates="project", cascade="all, delete-orphan")
+

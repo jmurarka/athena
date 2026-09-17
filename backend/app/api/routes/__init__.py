@@ -2,6 +2,7 @@ from fastapi import APIRouter
 from app.api.routes.projects import router as projects_router
 from app.api.routes.pages import router as pages_router
 from app.api.routes.canvas import router as canvas_router
+from app.api.routes.athena_graph import router as athena_graph_router
 
 api_router = APIRouter()
 
@@ -9,3 +10,5 @@ api_router = APIRouter()
 api_router.include_router(projects_router, prefix="/projects", tags=["projects"])
 api_router.include_router(pages_router, prefix="/projects", tags=["pages"])
 api_router.include_router(canvas_router, prefix="/projects", tags=["canvas"])
+api_router.include_router(athena_graph_router, prefix="/projects", tags=["athena_graph"])
+

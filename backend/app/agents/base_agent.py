@@ -5,6 +5,7 @@ from typing import Type, TypeVar, Optional, Dict, Any
 from pydantic import BaseModel
 from langchain_core.prompts import ChatPromptTemplate
 from app.core.config import settings
+from app.core.model_provider import get_llm_instance
 
 logger = logging.getLogger(__name__)
 T = TypeVar("T", bound=BaseModel)
@@ -28,35 +29,9 @@ class BaseAgent:
 
     def _init_llm(self):
         """
-        Instantiates the LLM based on available API keys in Settings.
-        Prioritizes Gemini, then HuggingFace, and falls back to OpenAI.
+        Instantiates LLM using model_provider.py model abstraction layer.
         """
-        if settings.GEMINI_API_KEY:
-            logger.info("Initializing Google Gemini (gemini-1.5-flash) Chat Model...")
-            from langchain_google_genai import ChatGoogleGenerativeAI
-            self.llm = ChatGoogleGenerativeAI(
-                model="gemini-1.5-flash",
-                google_api_key=settings.GEMINI_API_KEY,
-                temperature=self.temperature
-            )
-        elif settings.HUGGINGFACE_API_KEY:
-            logger.info("Initializing HuggingFace Inference API Model...")
-            from langchain_huggingface import HuggingFaceEndpoint
-            self.llm = HuggingFaceEndpoint(
-                repo_id="meta-llama/Meta-Llama-3-8B-Instruct",
-                huggingfacehub_api_token=settings.HUGGINGFACE_API_KEY,
-                temperature=self.temperature
-            )
-        else:
-            logger.info("Initializing OpenAI ChatOpenAI Model...")
-            from langchain_openai import ChatOpenAI
-            api_key = settings.OPENAI_API_KEY or "mock-key"
-            self.llm = ChatOpenAI(
-                model="gpt-4o",
-                openai_api_key=api_key,
-                temperature=self.temperature,
-                model_kwargs={"response_format": {"type": "json_object"}} if self.response_model else None
-            )
+        self.llm = get_llm_instance(temperature=self.temperature)
 
         # Bind Pydantic schema model if structural parser requested
         if self.response_model:
@@ -67,6 +42,7 @@ class BaseAgent:
                     f"Failed to bind structured output schema: {str(e)}. "
                     "Falling back to manual string parsing."
                 )
+
 
     def execute(self, user_content: str, prompt_vars: Optional[Dict[str, Any]] = None) -> Any:
         """

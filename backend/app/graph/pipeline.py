@@ -8,67 +8,88 @@ from app.models.project import Project, ProjectStatus
 from app.models.page import Page, AgentType
 from app.models.canvas import CanvasState
 from app.models.agent_run import AgentRun, AgentRunStatus
+from app.models.graph_models import (
+    Requirement, RequirementCategory,
+    Feature, FeatureRequirementMapping,
+    ArchitectureComponent, ComponentFeatureMapping,
+    Decision, EvidenceClaim, VerificationStatus,
+    ValidationIssue, IssueSeverity
+)
 from app.graph.state import GraphState
 
-# Import specialized agents
-from app.agents.supervisor import SupervisorAgent
+# Import ATHENA specialized agents
+from app.agents.problem_analysis_agent import ProblemAnalysisAgent
 from app.agents.product_agent import ProductAgent
+from app.agents.research_agent import ResearchAgent
 from app.agents.system_design_agent import SystemDesignAgent
-from app.agents.market_agent import MarketAgent
 from app.agents.feasibility_agent import FeasibilityAgent
+from app.agents.validation_engine import ValidationEngine
 from app.agents.roadmap_agent import RoadmapAgent
 
 logger = logging.getLogger(__name__)
 
-# Node: Supervisor
-def run_supervisor(state: GraphState) -> GraphState:
-    logger.info("Executing Supervisor Node...")
+
+def run_problem_analysis_agent(state: GraphState) -> GraphState:
+    logger.info("Executing Problem Analysis Agent Node...")
     project_id = state["project_id"]
     problem_statement = state["problem_statement"]
     
     db = SessionLocal()
     agent_run = None
     try:
-        # Update project status to processing in DB
         project = db.query(Project).filter(Project.id == project_id).first()
         if project:
             project.status = ProjectStatus.PROCESSING
             db.commit()
             
-        # Log AgentRun start
         agent_run = AgentRun(
             project_id=project_id,
-            agent_type=AgentType.PRODUCT,  # mapped to product/supervisor telemetry
+            agent_type=AgentType.PRODUCT,
             status=AgentRunStatus.STARTED
         )
         db.add(agent_run)
         db.commit()
         db.refresh(agent_run)
         
-        # Execute LLM Supervisor Agent
-        supervisor = SupervisorAgent()
-        output, latency_ms, tokens = supervisor.execute(
-            user_content=problem_statement,
-            prompt_vars={"problem_statement": problem_statement}
-        )
+        agent = ProblemAnalysisAgent()
+        output, latency_ms, tokens = agent.analyze(problem_statement=problem_statement)
         
-        # Update telemetry
+        page_content = {
+            "title": output.problem_title,
+            "summary": output.problem_summary,
+            "personas": output.target_users,
+            "objectives": output.core_objectives,
+            "assumptions": output.assumptions,
+            "constraints": output.constraints,
+            "clarifications": [c.model_dump() for c in output.clarification_questions]
+        }
+        
+        page = db.query(Page).filter(
+            Page.project_id == project_id,
+            Page.agent_type == AgentType.PRODUCT
+        ).first()
+        
+        if page:
+            page.content_json = page_content
+            page.version += 1
+        else:
+            page = Page(
+                project_id=project_id,
+                agent_type=AgentType.PRODUCT,
+                title="Problem Analysis & Objectives",
+                content_json=page_content
+            )
+            db.add(page)
+            
         agent_run.status = AgentRunStatus.COMPLETED
         agent_run.latency_ms = latency_ms
         agent_run.tokens_used = tokens
         db.commit()
         
-        # Update Graph state
-        state["execution_plan"] = f"Domain: {output.domain} | Complexity: {output.complexity_scale}"
-        state["product_data"] = {
-            "domain": output.domain,
-            "complexity_scale": output.complexity_scale,
-            "focus_areas": output.focus_areas,
-            "technical_constraints": output.technical_constraints
-        }
+        state["problem_analysis_data"] = page_content
         
     except Exception as e:
-        logger.error(f"Supervisor Node execution failed: {str(e)}")
+        logger.error(f"Problem Analysis Agent Node failed: {str(e)}")
         if agent_run:
             agent_run.status = AgentRunStatus.FAILED
             agent_run.error = str(e)
@@ -79,12 +100,12 @@ def run_supervisor(state: GraphState) -> GraphState:
         
     return state
 
-# Node: Product Agent
+
 def run_product_agent(state: GraphState) -> GraphState:
     logger.info("Executing Product Agent Node...")
     project_id = state["project_id"]
     problem_statement = state["problem_statement"]
-    product_meta = state["product_data"]
+    analysis_data = state.get("problem_analysis_data", {})
     
     db = SessionLocal()
     agent_run = None
@@ -98,27 +119,68 @@ def run_product_agent(state: GraphState) -> GraphState:
         db.commit()
         db.refresh(agent_run)
         
-        # Execute Product Agent
         product_agent = ProductAgent()
         output, latency_ms, tokens = product_agent.execute(
             user_content=problem_statement,
             prompt_vars={
                 "problem_statement": problem_statement,
-                "domain": product_meta["domain"],
-                "complexity_scale": product_meta["complexity_scale"],
-                "focus_areas": ", ".join(product_meta["focus_areas"])
+                "domain": analysis_data.get("title", "Software System"),
+                "focus_areas": ", ".join(analysis_data.get("objectives", []))
             }
         )
         
-        # Serialize to Page database model
+        # Save explicit Requirement and Feature entities to DB graph
+        db.query(Requirement).filter(Requirement.project_id == project_id).delete()
+        db.query(Feature).filter(Feature.project_id == project_id).delete()
+        
+        req_map = {}
+        for req_item in output.requirements:
+            req_cat = RequirementCategory.FUNCTIONAL
+            if "non" in req_item.category.lower():
+                req_cat = RequirementCategory.NON_FUNCTIONAL
+            elif "constraint" in req_item.category.lower():
+                req_cat = RequirementCategory.CONSTRAINT
+                
+            db_req = Requirement(
+                project_id=project_id,
+                code=req_item.code,
+                title=req_item.title,
+                description=req_item.description,
+                category=req_cat,
+                priority=req_item.priority
+            )
+            db.add(db_req)
+            db.flush()
+            req_map[req_item.code] = db_req
+
+        for feat_item in output.features:
+            db_feat = Feature(
+                project_id=project_id,
+                code=feat_item.code,
+                title=feat_item.title,
+                description=feat_item.description,
+                user_story=feat_item.user_story,
+                is_mvp=feat_item.is_mvp
+            )
+            db.add(db_feat)
+            db.flush()
+
+            for req_code in feat_item.mapped_requirement_codes:
+                if req_code in req_map:
+                    mapping = FeatureRequirementMapping(
+                        feature_id=db_feat.id,
+                        requirement_id=req_map[req_code].id
+                    )
+                    db.add(mapping)
+
         page_content = {
             "vision": output.vision,
             "personas": [p.model_dump() for p in output.personas],
+            "requirements": [r.model_dump() for r in output.requirements],
             "features": [f.model_dump() for f in output.features],
             "nfrs": [n.model_dump() for n in output.nfrs]
         }
         
-        # Check if page already exists, otherwise create
         page = db.query(Page).filter(
             Page.project_id == project_id,
             Page.agent_type == AgentType.PRODUCT
@@ -131,22 +193,20 @@ def run_product_agent(state: GraphState) -> GraphState:
             page = Page(
                 project_id=project_id,
                 agent_type=AgentType.PRODUCT,
-                title="Product Plan & Vision",
+                title="Product Requirements & Features",
                 content_json=page_content
             )
             db.add(page)
             
-        # Update telemetry
         agent_run.status = AgentRunStatus.COMPLETED
         agent_run.latency_ms = latency_ms
         agent_run.tokens_used = tokens
         db.commit()
         
-        # Save payload to state for downstream consumption
         state["product_data"] = page_content
         
     except Exception as e:
-        logger.error(f"Product Agent Node execution failed: {str(e)}")
+        logger.error(f"Product Agent Node failed: {str(e)}")
         if agent_run:
             agent_run.status = AgentRunStatus.FAILED
             agent_run.error = str(e)
@@ -157,96 +217,9 @@ def run_product_agent(state: GraphState) -> GraphState:
         
     return state
 
-# Node: System Design Agent
-def run_system_design_agent(state: GraphState) -> GraphState:
-    logger.info("Executing System Design Agent Node...")
-    project_id = state["project_id"]
-    product_data = state["product_data"]
-    
-    db = SessionLocal()
-    agent_run = None
-    try:
-        agent_run = AgentRun(
-            project_id=project_id,
-            agent_type=AgentType.SYSTEM_DESIGN,
-            status=AgentRunStatus.STARTED
-        )
-        db.add(agent_run)
-        db.commit()
-        db.refresh(agent_run)
-        
-        # Execute System Design Agent
-        sys_agent = SystemDesignAgent()
-        output, latency_ms, tokens = sys_agent.execute(
-            user_content=product_data.get("vision", ""),
-            prompt_vars={"product_data": str(product_data)}
-        )
-        
-        # Save HLD page report
-        hld_content = {"markdown": output.hld_markdown}
-        page = db.query(Page).filter(
-            Page.project_id == project_id,
-            Page.agent_type == AgentType.SYSTEM_DESIGN
-        ).first()
-        
-        if page:
-            page.content_json = hld_content
-            page.version += 1
-        else:
-            page = Page(
-                project_id=project_id,
-                agent_type=AgentType.SYSTEM_DESIGN,
-                title="Systems Design HLD",
-                content_json=hld_content
-            )
-            db.add(page)
-            
-        # Save structured React Flow canvas
-        canvas_payload = {
-            "nodes": [n.model_dump() for n in output.canvas.nodes],
-            "edges": [e.model_dump() for e in output.canvas.edges],
-            "viewport": {"x": 0, "y": 0, "zoom": 1}
-        }
-        
-        canvas = db.query(CanvasState).filter(CanvasState.project_id == project_id).first()
-        if canvas:
-            canvas.canvas_json = canvas_payload
-        else:
-            canvas = CanvasState(
-                project_id=project_id,
-                canvas_json=canvas_payload
-            )
-            db.add(canvas)
-            
-        # Update telemetry
-        agent_run.status = AgentRunStatus.COMPLETED
-        agent_run.latency_ms = latency_ms
-        agent_run.tokens_used = tokens
-        
-        db.commit()
-        
-        # Save system design text in state for feasibility consumption
-        state["system_design_text"] = output.hld_markdown
-        
-    except Exception as e:
-        logger.error(f"System Design Agent Node execution failed: {str(e)}")
-        if agent_run:
-            agent_run.status = AgentRunStatus.FAILED
-            agent_run.error = str(e)
-            
-        project = db.query(Project).filter(Project.id == project_id).first()
-        if project:
-            project.status = ProjectStatus.FAILED
-        db.commit()
-        raise e
-    finally:
-        db.close()
-        
-    return state
 
-# Node: Market Agent
-def run_market_agent(state: GraphState) -> GraphState:
-    logger.info("Executing Market Agent Node...")
+def run_research_agent(state: GraphState) -> GraphState:
+    logger.info("Executing Evidence-Aware Research Agent Node...")
     project_id = state["project_id"]
     problem_statement = state["problem_statement"]
     
@@ -262,21 +235,36 @@ def run_market_agent(state: GraphState) -> GraphState:
         db.commit()
         db.refresh(agent_run)
         
-        # Execute Market Agent
-        market_agent = MarketAgent()
-        output, latency_ms, tokens = market_agent.execute(
+        research_agent = ResearchAgent()
+        output, latency_ms, tokens = research_agent.execute(
             user_content=problem_statement,
             prompt_vars={"problem_statement": problem_statement}
         )
         
-        # Serialize to Page database model
+        db.query(EvidenceClaim).filter(EvidenceClaim.project_id == project_id).delete()
+        for claim_item in output.evidence_claims:
+            v_status = VerificationStatus.UNVERIFIED
+            if "verify" in claim_item.verification_status.lower():
+                v_status = VerificationStatus.VERIFIED
+            elif "contradict" in claim_item.verification_status.lower():
+                v_status = VerificationStatus.CONTRADICTED
+
+            db_claim = EvidenceClaim(
+                project_id=project_id,
+                claim_text=claim_item.claim_text,
+                source_name=claim_item.source_name,
+                source_url=claim_item.source_url,
+                status=v_status
+            )
+            db.add(db_claim)
+
         page_content = {
+            "market_overview": output.market_overview,
             "competitors": [c.model_dump() for c in output.competitors],
-            "gaps": output.gaps,
-            "differentiation": output.differentiation
+            "differentiation": output.differentiation_strategy,
+            "evidence_claims": [e.model_dump() for e in output.evidence_claims]
         }
         
-        # Check if page already exists, otherwise create
         page = db.query(Page).filter(
             Page.project_id == project_id,
             Page.agent_type == AgentType.MARKET
@@ -289,42 +277,156 @@ def run_market_agent(state: GraphState) -> GraphState:
             page = Page(
                 project_id=project_id,
                 agent_type=AgentType.MARKET,
-                title="Competitive Market Research",
+                title="Evidence-Aware Research & Differentiation",
                 content_json=page_content
             )
             db.add(page)
             
-        # Update telemetry
         agent_run.status = AgentRunStatus.COMPLETED
         agent_run.latency_ms = latency_ms
         agent_run.tokens_used = tokens
         db.commit()
         
-        # Save payload to state
-        state["market_data"] = page_content
+        state["research_data"] = page_content
         
     except Exception as e:
-        logger.error(f"Market Agent Node execution failed: {str(e)}")
+        logger.error(f"Research Agent Node failed: {str(e)}")
         if agent_run:
             agent_run.status = AgentRunStatus.FAILED
             agent_run.error = str(e)
-            
-        project = db.query(Project).filter(Project.id == project_id).first()
-        if project:
-            project.status = ProjectStatus.FAILED
-        db.commit()
+            db.commit()
         raise e
     finally:
         db.close()
         
     return state
 
-# Node: Feasibility Agent
+
+def run_system_design_agent(state: GraphState) -> GraphState:
+    logger.info("Executing System Design Agent Node...")
+    project_id = state["project_id"]
+    product_data = state.get("product_data", {})
+    
+    db = SessionLocal()
+    agent_run = None
+    try:
+        agent_run = AgentRun(
+            project_id=project_id,
+            agent_type=AgentType.SYSTEM_DESIGN,
+            status=AgentRunStatus.STARTED
+        )
+        db.add(agent_run)
+        db.commit()
+        db.refresh(agent_run)
+        
+        sys_agent = SystemDesignAgent()
+        output, latency_ms, tokens = sys_agent.execute(
+            user_content=str(product_data),
+            prompt_vars={"product_data": str(product_data)}
+        )
+        
+        # Save components & decisions to DB graph
+        db.query(ArchitectureComponent).filter(ArchitectureComponent.project_id == project_id).delete()
+        db.query(Decision).filter(Decision.project_id == project_id).delete()
+
+        feat_records = db.query(Feature).filter(Feature.project_id == project_id).all()
+        feat_map = {f.code: f for f in feat_records}
+
+        for comp_item in output.components:
+            db_comp = ArchitectureComponent(
+                project_id=project_id,
+                component_id_name=comp_item.component_id_name,
+                name=comp_item.name,
+                component_type=comp_item.component_type,
+                tech_stack=comp_item.tech_stack,
+                description=comp_item.description
+            )
+            db.add(db_comp)
+            db.flush()
+
+            for f_code in comp_item.mapped_feature_codes:
+                if f_code in feat_map:
+                    mapping = ComponentFeatureMapping(
+                        component_id=db_comp.id,
+                        feature_id=feat_map[f_code].id
+                    )
+                    db.add(mapping)
+
+        for dec_item in output.decisions:
+            db_dec = Decision(
+                project_id=project_id,
+                topic=dec_item.topic,
+                chosen_option=dec_item.chosen_option,
+                why_chosen=dec_item.why_chosen,
+                why_not_alternatives=dec_item.why_not_alternatives,
+                trade_offs=dec_item.trade_offs,
+                assumptions=dec_item.assumptions
+            )
+            db.add(db_dec)
+
+        # HLD Page
+        hld_content = {
+            "markdown": output.hld_markdown,
+            "components": [c.model_dump() for c in output.components],
+            "decisions": [d.model_dump() for d in output.decisions]
+        }
+        page = db.query(Page).filter(
+            Page.project_id == project_id,
+            Page.agent_type == AgentType.SYSTEM_DESIGN
+        ).first()
+        
+        if page:
+            page.content_json = hld_content
+            page.version += 1
+        else:
+            page = Page(
+                project_id=project_id,
+                agent_type=AgentType.SYSTEM_DESIGN,
+                title="System Architecture & Technology Graph",
+                content_json=hld_content
+            )
+            db.add(page)
+            
+        # Canvas state
+        canvas_payload = {
+            "nodes": [n.model_dump() for n in output.canvas.nodes],
+            "edges": [e.model_dump() for e in output.canvas.edges],
+            "viewport": {"x": 0, "y": 0, "zoom": 1}
+        }
+        canvas = db.query(CanvasState).filter(CanvasState.project_id == project_id).first()
+        if canvas:
+            canvas.canvas_json = canvas_payload
+        else:
+            canvas = CanvasState(project_id=project_id, canvas_json=canvas_payload)
+            db.add(canvas)
+            
+        agent_run.status = AgentRunStatus.COMPLETED
+        agent_run.latency_ms = latency_ms
+        agent_run.tokens_used = tokens
+        db.commit()
+        
+        state["system_design_data"] = hld_content
+        state["system_design_canvas"] = canvas_payload
+        
+    except Exception as e:
+        logger.error(f"System Design Agent Node failed: {str(e)}")
+        if agent_run:
+            agent_run.status = AgentRunStatus.FAILED
+            agent_run.error = str(e)
+            db.commit()
+        raise e
+    finally:
+        db.close()
+        
+    return state
+
+
 def run_feasibility_agent(state: GraphState) -> GraphState:
     logger.info("Executing Feasibility Agent Node...")
     project_id = state["project_id"]
-    product_data = state["product_data"]
-    market_data = state["market_data"]
+    product_data = state.get("product_data", {})
+    research_data = state.get("research_data", {})
+    system_data = state.get("system_design_data", {})
     
     db = SessionLocal()
     agent_run = None
@@ -338,24 +440,23 @@ def run_feasibility_agent(state: GraphState) -> GraphState:
         db.commit()
         db.refresh(agent_run)
         
-        # Execute Feasibility Agent
         feasibility_agent = FeasibilityAgent()
         output, latency_ms, tokens = feasibility_agent.execute(
             user_content=str(product_data),
             prompt_vars={
                 "product_data": str(product_data),
-                "market_data": str(market_data)
+                "architecture_data": str(system_data),
+                "research_data": str(research_data)
             }
         )
         
-        # Serialize to Page database model
         page_content = {
+            "buildability": output.buildability.model_dump(),
             "risks": [r.model_dump() for r in output.risks],
             "resource_requirements": output.resource_requirements,
-            "technical_feasibility_summary": output.technical_feasibility_summary
+            "feasibility_summary": output.feasibility_summary
         }
         
-        # Check if page already exists, otherwise create
         page = db.query(Page).filter(
             Page.project_id == project_id,
             Page.agent_type == AgentType.FEASIBILITY
@@ -368,42 +469,111 @@ def run_feasibility_agent(state: GraphState) -> GraphState:
             page = Page(
                 project_id=project_id,
                 agent_type=AgentType.FEASIBILITY,
-                title="Technical Feasibility Analysis",
+                title="Buildability & Feasibility Matrix",
                 content_json=page_content
             )
             db.add(page)
             
-        # Update telemetry
         agent_run.status = AgentRunStatus.COMPLETED
         agent_run.latency_ms = latency_ms
         agent_run.tokens_used = tokens
         db.commit()
         
-        # Save payload to state
         state["feasibility_data"] = page_content
         
     except Exception as e:
-        logger.error(f"Feasibility Agent Node execution failed: {str(e)}")
+        logger.error(f"Feasibility Agent Node failed: {str(e)}")
         if agent_run:
             agent_run.status = AgentRunStatus.FAILED
             agent_run.error = str(e)
-            
-        project = db.query(Project).filter(Project.id == project_id).first()
-        if project:
-            project.status = ProjectStatus.FAILED
-        db.commit()
+            db.commit()
         raise e
     finally:
         db.close()
         
     return state
 
-# Node: Roadmap Agent
+
+def run_validation_agent(state: GraphState) -> GraphState:
+    logger.info("Executing Validation Engine Node ('Break My Plan')...")
+    project_id = state["project_id"]
+    product_data = state.get("product_data", {})
+    research_data = state.get("research_data", {})
+    system_data = state.get("system_design_data", {})
+    feasibility_data = state.get("feasibility_data", {})
+    
+    db = SessionLocal()
+    try:
+        reqs = product_data.get("requirements", [])
+        feats = product_data.get("features", [])
+        comps = system_data.get("components", [])
+        decs = system_data.get("decisions", [])
+        claims = research_data.get("evidence_claims", [])
+
+        validator = ValidationEngine()
+        output, latency_ms, tokens = validator.validate_plan(
+            requirements_data=reqs,
+            features_data=feats,
+            components_data=comps,
+            decisions_data=decs,
+            claims_data=claims,
+            feasibility_data=feasibility_data
+        )
+
+        # Update Project Health Metrics
+        proj = db.query(Project).filter(Project.id == project_id).first()
+        if proj:
+            proj.health_metrics = {
+                "coverage_score": output.metrics.coverage_score,
+                "contradiction_rate": output.metrics.contradiction_rate,
+                "unsupported_claim_rate": output.metrics.unsupported_claim_rate,
+                "critical_count": output.metrics.critical_count,
+                "warning_count": output.metrics.warning_count,
+                "review_count": output.metrics.review_count,
+                "total_requirements": output.metrics.total_requirements,
+                "mapped_requirements": output.metrics.mapped_requirements,
+            }
+
+            db.query(ValidationIssue).filter(ValidationIssue.project_id == project_id).delete()
+            for issue_item in output.issues:
+                sev = IssueSeverity.REVIEW
+                if issue_item.severity.lower() == "critical":
+                    sev = IssueSeverity.CRITICAL
+                elif issue_item.severity.lower() == "warning":
+                    sev = IssueSeverity.WARNING
+
+                db_issue = ValidationIssue(
+                    project_id=project_id,
+                    severity=sev,
+                    code=issue_item.code,
+                    title=issue_item.title,
+                    description=issue_item.description,
+                    suggested_fix=issue_item.suggested_fix,
+                    affected_entities=issue_item.affected_entities
+                )
+                db.add(db_issue)
+
+            db.commit()
+
+        state["validation_data"] = {
+            "metrics": output.metrics.model_dump(),
+            "issues": [i.model_dump() for i in output.issues],
+            "next_steps": output.recommended_next_steps
+        }
+
+    except Exception as e:
+        logger.error(f"Validation Engine Node failed: {str(e)}")
+    finally:
+        db.close()
+
+    return state
+
+
 def run_roadmap_agent(state: GraphState) -> GraphState:
     logger.info("Executing Roadmap Agent Node...")
     project_id = state["project_id"]
-    product_data = state["product_data"]
-    feasibility_data = state["feasibility_data"]
+    product_data = state.get("product_data", {})
+    feasibility_data = state.get("feasibility_data", {})
     
     db = SessionLocal()
     agent_run = None
@@ -417,7 +587,6 @@ def run_roadmap_agent(state: GraphState) -> GraphState:
         db.commit()
         db.refresh(agent_run)
         
-        # Execute Roadmap Agent
         roadmap_agent = RoadmapAgent()
         output, latency_ms, tokens = roadmap_agent.execute(
             user_content=str(product_data),
@@ -427,14 +596,12 @@ def run_roadmap_agent(state: GraphState) -> GraphState:
             }
         )
         
-        # Serialize to Page database model
         page_content = {
             "phases": [p.model_dump() for p in output.phases],
             "mvp_scope": output.mvp_scope,
             "v2_scope": output.v2_scope
         }
         
-        # Check if page already exists, otherwise create
         page = db.query(Page).filter(
             Page.project_id == project_id,
             Page.agent_type == AgentType.ROADMAP
@@ -452,12 +619,10 @@ def run_roadmap_agent(state: GraphState) -> GraphState:
             )
             db.add(page)
             
-        # Update telemetry
         agent_run.status = AgentRunStatus.COMPLETED
         agent_run.latency_ms = latency_ms
         agent_run.tokens_used = tokens
         
-        # Update Project Status to DONE (final node)
         project = db.query(Project).filter(Project.id == project_id).first()
         if project:
             project.status = ProjectStatus.DONE
@@ -465,7 +630,7 @@ def run_roadmap_agent(state: GraphState) -> GraphState:
         db.commit()
         
     except Exception as e:
-        logger.error(f"Roadmap Agent Node execution failed: {str(e)}")
+        logger.error(f"Roadmap Agent Node failed: {str(e)}")
         if agent_run:
             agent_run.status = AgentRunStatus.FAILED
             agent_run.error = str(e)
@@ -480,35 +645,30 @@ def run_roadmap_agent(state: GraphState) -> GraphState:
         
     return state
 
-# Compile state graph pipeline mappings
+
+# ATHENA Multi-Agent Orchestration Workflow
 workflow = StateGraph(GraphState)
 
-# Mount node processing steps
-workflow.add_node("supervisor", run_supervisor)
+workflow.add_node("problem_analysis", run_problem_analysis_agent)
 workflow.add_node("product", run_product_agent)
-workflow.add_node("market", run_market_agent)
+workflow.add_node("research", run_research_agent)
 workflow.add_node("system_design", run_system_design_agent)
 workflow.add_node("feasibility", run_feasibility_agent)
+workflow.add_node("validation", run_validation_agent)
 workflow.add_node("roadmap", run_roadmap_agent)
 
-# Set routing transitions
-workflow.set_entry_point("supervisor")
+workflow.set_entry_point("problem_analysis")
 
-# Parallel branch from supervisor to product and market
 workflow.add_conditional_edges(
-    "supervisor",
-    lambda state: ["product", "market"]
+    "problem_analysis",
+    lambda state: ["product", "research"]
 )
 
-# System design depends on product design completion
 workflow.add_edge("product", "system_design")
-
-# Feasibility node acts as join node synchronizing both branches
 workflow.add_edge("system_design", "feasibility")
-workflow.add_edge("market", "feasibility")
-
-# Sequential flow for final timeline roadmap
-workflow.add_edge("feasibility", "roadmap")
+workflow.add_edge("research", "feasibility")
+workflow.add_edge("feasibility", "validation")
+workflow.add_edge("validation", "roadmap")
 workflow.add_edge("roadmap", END)
 
 app_graph = workflow.compile()

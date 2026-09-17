@@ -17,6 +17,8 @@ import {
 } from 'lucide-react';
 import { fetchWithAuth } from '@/lib/api';
 
+import HealthDashboard from '@/app/components/HealthDashboard';
+
 interface PageItem {
   type: string;
   title: string;
@@ -78,21 +80,21 @@ export default function ProjectWorkspace() {
   const pageItems: PageItem[] = [
     {
       type: 'product',
-      title: 'Product Preparation & Vision',
+      title: 'Product Requirements & Features',
       icon: Sparkles,
-      desc: 'Target user personas, epic features, core vision statement, and NFR metrics.'
+      desc: 'Requirement Graph (REQ-xxx), target personas, features (F-xxx), and user stories.'
     },
     {
       type: 'market',
-      title: 'Market Research',
+      title: 'Evidence-Aware Research',
       icon: TrendingUp,
-      desc: 'Competitor mapping, market gap discovery, and value differentiation strategy.'
+      desc: 'Competitor mapping, evidence claims tracking, and source verification.'
     },
     {
       type: 'feasibility',
-      title: 'Feasibility Analysis',
+      title: 'Buildability & Feasibility Matrix',
       icon: AlertTriangle,
-      desc: 'Technical implementation risks, resource requirements, and risk mitigations.'
+      desc: 'Technical buildability scores, dataset availability, skills, and risk mitigations.'
     },
     {
       type: 'roadmap',
@@ -117,31 +119,35 @@ export default function ProjectWorkspace() {
             <ArrowLeft className="h-5 w-5" />
           </Link>
           <div className="flex items-center gap-3">
-            <div className="h-8 w-8 rounded-lg bg-gradient-to-tr from-violet-600 to-indigo-600 flex items-center justify-center">
-              <span className="font-bold text-sm text-white">W</span>
+            <div className="h-8 w-8 rounded-lg bg-gradient-to-tr from-indigo-600 to-violet-600 flex items-center justify-center">
+              <span className="font-bold text-sm text-white">A</span>
             </div>
             <div>
               <h1 className="font-bold text-base text-slate-100 leading-tight">{project.title}</h1>
-              <span className="text-[10px] text-slate-500 font-medium">Workspace ID: {project.id}</span>
+              <span className="text-[10px] text-slate-500 font-medium">ATHENA Workspace ID: {project.id}</span>
             </div>
           </div>
         </div>
       </header>
 
       {/* Workspace Hub Grid */}
-      <main className="relative z-10 max-w-6xl mx-auto px-6 py-12">
+      <main className="relative z-10 max-w-6xl mx-auto px-6 py-12 space-y-8">
         {error && (
-          <div className="mb-6 p-4 bg-red-950/40 border border-red-900/60 rounded-2xl text-sm text-red-400">
+          <div className="p-4 bg-red-950/40 border border-red-900/60 rounded-2xl text-sm text-red-400">
             {error}
           </div>
         )}
 
-        <div className="bg-slate-900/20 border border-slate-900/80 rounded-2xl p-8 mb-8 backdrop-blur-md">
-          <h2 className="text-xs uppercase font-bold text-slate-500 tracking-wider mb-2">Workspace Scope</h2>
+        {/* Project Health Dashboard & Validation Component */}
+        {id && <HealthDashboard projectId={id as string} />}
+
+        <div className="bg-slate-900/20 border border-slate-900/80 rounded-2xl p-6 backdrop-blur-md">
+          <h2 className="text-xs uppercase font-bold text-slate-500 tracking-wider mb-2">Problem Statement / Raw Scope</h2>
           <p className="text-slate-300 text-sm leading-relaxed max-w-3xl">
             {project.problem_statement}
           </p>
         </div>
+
 
         {/* Real-time agent status tracker if queued/processing/failed */}
         {project.status !== 'done' && (
