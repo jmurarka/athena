@@ -1,7 +1,6 @@
 import uuid
 import enum
-from sqlalchemy import Column, String, DateTime, ForeignKey, func, Enum as SQLEnum, Integer, UniqueConstraint
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy import Column, String, DateTime, ForeignKey, func, Enum as SQLEnum, Integer, UniqueConstraint, Uuid, JSON
 from sqlalchemy.orm import relationship
 from app.core.db import Base
 
@@ -19,11 +18,11 @@ class Page(Base):
     """
     __tablename__ = "pages"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
+    id = Column(Uuid, primary_key=True, default=uuid.uuid4)
+    project_id = Column(Uuid, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
     agent_type = Column(SQLEnum(AgentType, name="agent_type"), nullable=False, index=True)
     title = Column(String(255), nullable=False)
-    content_json = Column(JSONB, nullable=False)
+    content_json = Column(JSON, nullable=False)
     version = Column(Integer, default=1, nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 

@@ -10,3 +10,6 @@ venv/
 frontend/.next/
 frontend/node_modules/
 backend/__pycache__/
+*.db
+*.sqlite
+*.sqlite3

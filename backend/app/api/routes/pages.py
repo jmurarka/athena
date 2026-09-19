@@ -59,9 +59,20 @@ def get_project_page(
     ).first()
     
     if not page:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Document page for agent type '{agent_type}' was not found in this project"
+        import uuid
+        from datetime import datetime
+        agent_name = agent_type.value.replace("_", " ").title() if hasattr(agent_type, "value") else str(agent_type).replace("_", " ").title()
+        return PageSchema(
+            id=uuid.uuid4(),
+            project_id=project_id,
+            agent_type=agent_type,
+            title=f"{agent_name} Specification",
+            content_json={
+                "status": "generating",
+                "message": f"The {agent_name} Agent is currently generating this specification. Please refresh in a moment."
+            },
+            version=1,
+            updated_at=datetime.utcnow()
         )
     return page
 

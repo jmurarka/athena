@@ -52,18 +52,17 @@ class BaseAgent:
             prompt_vars = {}
             
         sys_message = self.system_prompt.format(**prompt_vars)
+        if self.response_model and "Example format:" not in sys_message:
+            props = list(self.response_model.model_fields.keys())
+            sys_message += f"\n\nCRITICAL: Output valid JSON strictly with exact snake_case keys: {json.dumps(props)}"
         
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", sys_message),
-            ("human", user_content)
-        ])
-        
-        chain = prompt | self.llm
+        from langchain_core.messages import SystemMessage, HumanMessage
+        messages = [SystemMessage(content=sys_message), HumanMessage(content=user_content)]
         
         start_time = time.time()
         try:
-            # Invoke chain
-            response = chain.invoke({"input": user_content})
+            # Invoke LLM
+            response = self.llm.invoke(messages)
             latency_ms = int((time.time() - start_time) * 1000)
             
             # Extract output structures
@@ -75,15 +74,38 @@ class BaseAgent:
             content = getattr(response, "content", response)
             if isinstance(content, str):
                 if self.response_model:
-                    # Strip potential markdown json blocks from raw text (e.g. ```json ... ```)
+                    import re
                     cleaned_content = content.strip()
-                    if cleaned_content.startswith("```json"):
-                        cleaned_content = cleaned_content[7:]
-                    if cleaned_content.endswith("```"):
-                        cleaned_content = cleaned_content[:-3]
-                    cleaned_content = cleaned_content.strip()
+                    # Try extracting code fence first
+                    match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", cleaned_content, re.DOTALL)
+                    if match:
+                        cleaned_content = match.group(1).strip()
+                    else:
+                        # Find outermost JSON object
+                        first_brace = cleaned_content.find("{")
+                        last_brace = cleaned_content.rfind("}")
+                        if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+                            cleaned_content = cleaned_content[first_brace:last_brace + 1].strip()
                     
                     parsed_json = json.loads(cleaned_content)
+                    
+                    def normalize_json_keys(obj):
+                        if isinstance(obj, dict):
+                            new_obj = {}
+                            for k, v in obj.items():
+                                snake = re.sub(r'(?<!^)(?=[A-Z])', '_', k).lower()
+                                if snake == "project_title":
+                                    snake = "problem_title"
+                                elif snake == "project_summary":
+                                    snake = "problem_summary"
+                                new_obj[snake] = normalize_json_keys(v)
+                                new_obj[k] = normalize_json_keys(v)
+                            return new_obj
+                        elif isinstance(obj, list):
+                            return [normalize_json_keys(x) for x in obj]
+                        return obj
+
+                    parsed_json = normalize_json_keys(parsed_json)
                     return self.response_model.model_validate(parsed_json), latency_ms, 0
                 return content, latency_ms, 0
                 

@@ -20,7 +20,13 @@ const convertJsonToBlocks = (json: any, type: string): Block[] => {
 
   const result: Block[] = [];
   if (!json) return result;
-  
+
+  if (json.message) {
+    result.push({ id: 'status-title', type: 'h2', content: 'Generating Document...' });
+    result.push({ id: 'status-desc', type: 'paragraph', content: json.message });
+    return result;
+  }
+
   if (type === 'product') {
     if (json.vision) {
       result.push({ id: 'v-title', type: 'h1', content: 'Product Vision & Core Scope' });

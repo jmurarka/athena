@@ -24,6 +24,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from app.core.db import engine, Base
+from app.models import base as _models_base
+try:
+    Base.metadata.create_all(bind=engine)
+except Exception:
+    pass
+
 from app.api.routes import api_router
 app.include_router(api_router, prefix=settings.API_V1_STR)
 

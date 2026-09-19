@@ -8,6 +8,8 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "Agentic Product Planner & Canvas"
     API_V1_STR: str = "/api"
     
+    DEV_MODE: bool = False
+
     # Database Configurations
     POSTGRES_HOST: str = "db"
     POSTGRES_PORT: str = "5432"
@@ -24,7 +26,7 @@ class Settings(BaseSettings):
     # LLM API Keys & Provider Settings
     LLM_MODE: str = "hybrid" # local, hybrid, cloud
     OLLAMA_BASE_URL: str = "http://localhost:11434"
-    OLLAMA_MODEL: str = "llama3.2:3b"
+    OLLAMA_MODEL: str = "llama3.2:1b"
     LLAMA_CPP_BASE_URL: Optional[str] = "http://localhost:8080"
     OPENAI_API_KEY: Optional[str] = None
     GEMINI_API_KEY: Optional[str] = None
@@ -46,7 +48,7 @@ class Settings(BaseSettings):
 
     class Config:
         case_sensitive = True
-        env_file = ".env"
+        env_file = (".env", "../.env")
         extra = "ignore"
 
 settings = Settings()

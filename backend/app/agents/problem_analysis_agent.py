@@ -1,24 +1,70 @@
-from typing import List, Optional
-from pydantic import BaseModel, Field
+from typing import List, Optional, Union
+from pydantic import BaseModel, Field, field_validator
 from app.agents.base_agent import BaseAgent
 
 
 class ClarificationQuestion(BaseModel):
     question: str = Field(description="Targeted clarification question for missing/ambiguous details.")
-    rationale: str = Field(description="Why this detail matters for project planning.")
+    rationale: str = Field(default="Clarification needed for scoping.", description="Why this detail matters for project planning.")
 
 
 class ProblemAnalysisOutput(BaseModel):
-    problem_title: str = Field(description="Clean, concise title of the project idea.")
-    problem_summary: str = Field(description="Structured breakdown of the problem statement.")
-    target_users: List[str] = Field(description="List of primary and secondary user personas.")
-    core_objectives: List[str] = Field(description="Key measurable objectives of the system.")
-    assumptions: List[str] = Field(description="Implicit or explicit assumptions made.")
-    constraints: List[str] = Field(description="Technical, budget, offline, or regulatory constraints.")
+    problem_title: str = Field(default="Athena Project Plan", description="Clean, concise title of the project idea.")
+    problem_summary: str = Field(default="", description="Structured breakdown of the problem statement.")
+    target_users: List[str] = Field(default_factory=list, description="List of primary and secondary user personas.")
+    core_objectives: List[str] = Field(default_factory=list, description="Key measurable objectives of the system.")
+    assumptions: List[str] = Field(default_factory=list, description="Implicit or explicit assumptions made.")
+    constraints: List[str] = Field(default_factory=list, description="Technical, budget, offline, or regulatory constraints.")
     clarification_questions: List[ClarificationQuestion] = Field(
         default_factory=list,
         description="Targeted questions if the problem input is ambiguous."
     )
+
+    @field_validator("target_users", mode="before")
+    @classmethod
+    def parse_target_users(cls, v):
+        if isinstance(v, list):
+            res = []
+            for item in v:
+                if isinstance(item, dict):
+                    name = item.get("name") or item.get("role") or item.get("user") or str(item)
+                    desc = item.get("description") or item.get("desc") or ""
+                    res.append(f"{name}: {desc}" if desc else name)
+                elif isinstance(item, str):
+                    res.append(item)
+                else:
+                    res.append(str(item))
+            return res
+        return v
+
+    @field_validator("core_objectives", "assumptions", "constraints", mode="before")
+    @classmethod
+    def parse_string_lists(cls, v):
+        if isinstance(v, list):
+            res = []
+            for item in v:
+                if isinstance(item, dict):
+                    val = item.get("title") or item.get("description") or item.get("name") or item.get("text") or str(item)
+                    res.append(str(val))
+                elif isinstance(item, str):
+                    res.append(item)
+                else:
+                    res.append(str(item))
+            return res
+        return v
+
+    @field_validator("clarification_questions", mode="before")
+    @classmethod
+    def parse_clarification_questions(cls, v):
+        if isinstance(v, list):
+            res = []
+            for item in v:
+                if isinstance(item, str):
+                    res.append({"question": item, "rationale": "Clarification needed for project scoping."})
+                elif isinstance(item, dict):
+                    res.append(item)
+            return res
+        return v
 
 
 PROBLEM_ANALYSIS_SYSTEM_PROMPT = """You are ATHENA's Problem Analysis Agent.

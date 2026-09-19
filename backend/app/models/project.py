@@ -1,7 +1,6 @@
 import uuid
 import enum
-from sqlalchemy import Column, String, Text, DateTime, ForeignKey, func, Enum as SQLEnum
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy import Column, String, Text, DateTime, ForeignKey, func, Enum as SQLEnum, Uuid, JSON
 from sqlalchemy.orm import relationship
 from app.core.db import Base
 
@@ -18,8 +17,8 @@ class Project(Base):
     """
     __tablename__ = "projects"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    id = Column(Uuid, primary_key=True, default=uuid.uuid4)
+    user_id = Column(Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     title = Column(String(255), nullable=False)
     problem_statement = Column(Text, nullable=False)
     status = Column(
@@ -28,7 +27,7 @@ class Project(Base):
         nullable=False,
         index=True
     )
-    health_metrics = Column(JSONB, default=dict, nullable=False)
+    health_metrics = Column(JSON, default=dict, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 

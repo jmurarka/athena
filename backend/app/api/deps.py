@@ -19,6 +19,13 @@ def get_current_db_user(
             detail="User identity could not be retrieved from authorization payload"
         )
         
+    import uuid
+    if isinstance(user_id, str):
+        try:
+            user_id = uuid.UUID(user_id)
+        except Exception:
+            pass
+
     user = db.query(User).filter(User.id == user_id).first()
     
     if not user:

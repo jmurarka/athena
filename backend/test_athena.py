@@ -1,4 +1,6 @@
 import sys
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
 import logging
 from app.core.config import settings
 from app.core.model_provider import get_llm_instance

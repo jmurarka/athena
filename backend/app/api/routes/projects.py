@@ -36,8 +36,25 @@ def create_project(
         db.commit()
         db.refresh(project)
         
-        # Trigger async pipeline worker task
-        run_agentic_pipeline.delay(str(project.id), project.problem_statement)
+        # Trigger async pipeline worker task (Celery with thread fallback for non-docker/local dev)
+        from app.core.config import settings
+        if settings.DEV_MODE:
+            import threading
+            threading.Thread(
+                target=run_agentic_pipeline,
+                args=(str(project.id), project.problem_statement),
+                daemon=True
+            ).start()
+        else:
+            try:
+                run_agentic_pipeline.delay(str(project.id), project.problem_statement)
+            except Exception:
+                import threading
+                threading.Thread(
+                    target=run_agentic_pipeline,
+                    args=(str(project.id), project.problem_statement),
+                    daemon=True
+                ).start()
         
     except Exception as e:
         db.rollback()

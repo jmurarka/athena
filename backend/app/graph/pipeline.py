@@ -4,6 +4,7 @@ from typing import Dict, Any
 from langgraph.graph import StateGraph, END
 
 from app.core.db import SessionLocal
+from app.models.user import User
 from app.models.project import Project, ProjectStatus
 from app.models.page import Page, AgentType
 from app.models.canvas import CanvasState
@@ -659,14 +660,10 @@ workflow.add_node("roadmap", run_roadmap_agent)
 
 workflow.set_entry_point("problem_analysis")
 
-workflow.add_conditional_edges(
-    "problem_analysis",
-    lambda state: ["product", "research"]
-)
-
-workflow.add_edge("product", "system_design")
+workflow.add_edge("problem_analysis", "product")
+workflow.add_edge("product", "research")
+workflow.add_edge("research", "system_design")
 workflow.add_edge("system_design", "feasibility")
-workflow.add_edge("research", "feasibility")
 workflow.add_edge("feasibility", "validation")
 workflow.add_edge("validation", "roadmap")
 workflow.add_edge("roadmap", END)

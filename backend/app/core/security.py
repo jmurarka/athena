@@ -1,20 +1,39 @@
+from typing import Optional
 from jose import jwt, JWTError
 from fastapi import HTTPException, status, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from app.core.config import settings
 
-reusable_oauth2 = HTTPBearer()
+reusable_oauth2 = HTTPBearer(auto_error=False)
 
 def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(reusable_oauth2)
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(reusable_oauth2)
 ) -> dict:
     """
     Decodes the Supabase JWT bearer token using the configured secret key.
-    Enforces authorization rules at the endpoint layer.
+    Enforces authorization rules at the endpoint layer with DEV_MODE fallback.
     """
+    if not credentials:
+        if settings.DEV_MODE:
+            return {
+                "id": "00000000-0000-0000-0000-000000000001",
+                "email": "developer@athena.local",
+                "role": "authenticated"
+            }
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication credentials were not provided",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     token = credentials.credentials
     if not settings.SUPABASE_JWT_SECRET:
-        # Fallback or alert for missing local settings
+        if settings.DEV_MODE:
+            return {
+                "id": "00000000-0000-0000-0000-000000000001",
+                "email": "developer@athena.local",
+                "role": "authenticated"
+            }
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Supabase JWT secret is not configured in backend settings"

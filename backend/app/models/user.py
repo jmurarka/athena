@@ -1,6 +1,5 @@
 import uuid
-from sqlalchemy import Column, String, DateTime, func
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Column, String, DateTime, func, Uuid
 from sqlalchemy.orm import relationship
 from app.core.db import Base
 
@@ -11,7 +10,7 @@ class User(Base):
     """
     __tablename__ = "users"
     
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(Uuid, primary_key=True, default=uuid.uuid4)
     email = Column(String(255), unique=True, nullable=False, index=True)
     name = Column(String(255), nullable=True)
     auth_provider = Column(String(50), nullable=False)

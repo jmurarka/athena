@@ -1,7 +1,6 @@
 import uuid
 import enum
-from sqlalchemy import Column, DateTime, ForeignKey, func, Enum as SQLEnum, Integer, Text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Column, DateTime, ForeignKey, func, Enum as SQLEnum, Integer, Text, Uuid
 from sqlalchemy.orm import relationship
 from app.core.db import Base
 from app.models.page import AgentType
@@ -18,8 +17,8 @@ class AgentRun(Base):
     """
     __tablename__ = "agent_runs"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
+    id = Column(Uuid, primary_key=True, default=uuid.uuid4)
+    project_id = Column(Uuid, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
     agent_type = Column(SQLEnum(AgentType, name="agent_type"), nullable=False, index=True)
     status = Column(
         SQLEnum(AgentRunStatus, name="agent_run_status"),

@@ -1,10 +1,11 @@
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
+from uuid import UUID
 from pydantic import BaseModel, Field
 from datetime import datetime
 
 
 class RequirementSchema(BaseModel):
-    id: str
+    id: Union[UUID, str]
     code: str
     title: str
     description: str
@@ -16,7 +17,7 @@ class RequirementSchema(BaseModel):
 
 
 class FeatureSchema(BaseModel):
-    id: str
+    id: Union[UUID, str]
     code: str
     title: str
     description: str
@@ -28,7 +29,7 @@ class FeatureSchema(BaseModel):
 
 
 class ArchitectureComponentSchema(BaseModel):
-    id: str
+    id: Union[UUID, str]
     component_id_name: str
     name: str
     component_type: str
@@ -40,7 +41,7 @@ class ArchitectureComponentSchema(BaseModel):
 
 
 class DecisionSchema(BaseModel):
-    id: str
+    id: Union[UUID, str]
     topic: str
     chosen_option: str
     why_chosen: str
@@ -53,7 +54,7 @@ class DecisionSchema(BaseModel):
 
 
 class EvidenceClaimSchema(BaseModel):
-    id: str
+    id: Union[UUID, str]
     claim_text: str
     source_name: Optional[str] = None
     source_url: Optional[str] = None
@@ -64,7 +65,7 @@ class EvidenceClaimSchema(BaseModel):
 
 
 class ValidationIssueSchema(BaseModel):
-    id: str
+    id: Union[UUID, str]
     severity: str
     code: str
     title: str
@@ -88,7 +89,7 @@ class ProjectHealthMetricsSchema(BaseModel):
 
 
 class ProjectGraphResponse(BaseModel):
-    project_id: str
+    project_id: Union[UUID, str]
     health_metrics: ProjectHealthMetricsSchema
     requirements: List[RequirementSchema]
     features: List[FeatureSchema]
