@@ -42,6 +42,12 @@ class Settings(BaseSettings):
         # Construct Database URL if not explicitly provided
         if not self.DATABASE_URL:
             self.DATABASE_URL = f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
+        elif self.DATABASE_URL.startswith("sqlite:///./"):
+            # Resolve relative SQLite database path to absolute backend path
+            backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            db_name = self.DATABASE_URL.replace("sqlite:///./", "")
+            abs_db_path = os.path.join(backend_dir, db_name).replace("\\", "/")
+            self.DATABASE_URL = f"sqlite:///{abs_db_path}"
         # Construct Redis URL if not explicitly provided
         if not self.REDIS_URL:
             self.REDIS_URL = f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/0"

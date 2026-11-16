@@ -56,4 +56,15 @@ def run_agentic_pipeline(project_id: str, problem_statement: str):
         }
     except Exception as e:
         logger.error(f"Failed pipeline run: {str(e)}", exc_info=True)
+        try:
+            from app.core.db import SessionLocal
+            from app.models.project import Project, ProjectStatus
+            db = SessionLocal()
+            p = db.query(Project).filter(Project.id == p_id).first()
+            if p and p.status != ProjectStatus.DONE:
+                p.status = ProjectStatus.FAILED
+                db.commit()
+            db.close()
+        except Exception as db_err:
+            logger.error(f"Failed to record failure status in db: {str(db_err)}")
         raise e

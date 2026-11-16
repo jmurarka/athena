@@ -9,15 +9,14 @@ logger = logging.getLogger(__name__)
 
 def is_ollama_available() -> bool:
     """Check if Ollama server is running locally."""
-    for _ in range(2):
-        try:
-            url = f"{settings.OLLAMA_BASE_URL.rstrip('/')}/api/tags"
-            req = urllib.request.Request(url, method="GET")
-            with urllib.request.urlopen(req, timeout=8.0) as resp:
-                if resp.status == 200:
-                    return True
-        except Exception:
-            pass
+    try:
+        url = f"{settings.OLLAMA_BASE_URL.rstrip('/')}/api/tags"
+        req = urllib.request.Request(url, method="GET")
+        with urllib.request.urlopen(req, timeout=1.0) as resp:
+            if resp.status == 200:
+                return True
+    except Exception:
+        pass
     return False
 
 
@@ -32,23 +31,22 @@ def get_llm_instance(temperature: float = 0.2) -> Any:
     mode = settings.LLM_MODE.lower()
 
     if mode == "local" or mode == "hybrid":
-        try:
-            logger.info(f"Initializing Local Ollama model '{settings.OLLAMA_MODEL}' at {settings.OLLAMA_BASE_URL}...")
-            from langchain_community.chat_models import ChatOllama
-            return ChatOllama(
-                base_url=settings.OLLAMA_BASE_URL,
-                model=settings.OLLAMA_MODEL,
-                temperature=temperature,
-                format="json",
-            )
-        except Exception as e:
-            logger.warning(f"Failed to initialize ChatOllama: {str(e)}.")
-            if mode == "local":
-                raise e
-        except Exception as e:
-            logger.warning(f"Failed to initialize ChatOllama: {str(e)}.")
-            if mode == "local":
-                raise e
+        if mode == "local" or is_ollama_available():
+            try:
+                logger.info(f"Initializing Local Ollama model '{settings.OLLAMA_MODEL}' at {settings.OLLAMA_BASE_URL}...")
+                from langchain_community.chat_models import ChatOllama
+                return ChatOllama(
+                    base_url=settings.OLLAMA_BASE_URL,
+                    model=settings.OLLAMA_MODEL,
+                    temperature=temperature,
+                    format="json",
+                )
+            except Exception as e:
+                logger.warning(f"Failed to initialize ChatOllama: {str(e)}.")
+                if mode == "local":
+                    raise e
+        else:
+            logger.info("Local Ollama is offline. Falling back to configured cloud providers...")
 
     # Fallback / Cloud Mode
     if settings.GEMINI_API_KEY:

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Folder, 
   Plus, 
@@ -13,8 +13,12 @@ import {
   Layers, 
   Settings, 
   Sparkles,
-  X
+  X,
+  User,
+  LogIn,
+  LogOut
 } from 'lucide-react';
+import { supabase } from '@/lib/supabase';
 
 export interface ProjectItem {
   id: string;
@@ -49,6 +53,24 @@ export default function SidebarProjects({
   const [newProblem, setNewProblem] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setUserEmail(data.session?.user.email || null);
+    });
+    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUserEmail(session?.user.email || null);
+    });
+    return () => {
+      authListener?.subscription?.unsubscribe();
+    };
+  }, []);
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    setUserEmail(null);
+  };
 
   const filteredProjects = projects.filter((p) =>
     p.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -216,13 +238,33 @@ export default function SidebarProjects({
           )}
         </div>
 
-        {/* Sidebar Footer */}
-        <div className="p-3 border-t border-[#e9e9e7] text-[11px] text-slate-400 flex items-center justify-between">
-          <div className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
-            <span className="text-slate-500 font-medium">Local Ollama</span>
+        {/* Sidebar Footer with Auth Status */}
+        <div className="p-3 border-t border-[#e9e9e7] space-y-2">
+          <div className="flex items-center justify-between text-[11px] text-slate-500">
+            <div className="flex items-center gap-1.5 truncate">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block shrink-0" />
+              <span className="truncate">{userEmail ? userEmail : 'Guest / Dev Mode'}</span>
+            </div>
+            {userEmail ? (
+              <button
+                onClick={handleSignOut}
+                className="text-[10px] text-slate-400 hover:text-rose-600 transition underline shrink-0"
+              >
+                Sign out
+              </button>
+            ) : (
+              <a
+                href="/login"
+                className="text-[10px] text-[#7c3aed] hover:text-[#6d28d9] font-medium transition underline shrink-0"
+              >
+                Sign in
+              </a>
+            )}
           </div>
-          <span className="font-mono text-[10px]">v1.0</span>
+          <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono">
+            <span>ATHENA Engine</span>
+            <span>v1.0.0</span>
+          </div>
         </div>
       </aside>
 

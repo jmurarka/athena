@@ -1,6 +1,15 @@
+import hashlib
+import json
+import logging
 from typing import List, Optional, Union
 from pydantic import BaseModel, Field, field_validator
 from app.agents.base_agent import BaseAgent
+from app.core.config import settings
+
+logger = logging.getLogger(__name__)
+
+# Fallback in-memory cache for local execution
+_DECOMPOSITION_MEMORY_CACHE = {}
 
 
 class ClarificationQuestion(BaseModel):
@@ -92,4 +101,43 @@ class ProblemAnalysisAgent(BaseAgent):
         )
 
     def analyze(self, problem_statement: str):
-        return self.execute(user_content=problem_statement)
+        # Check SHA-256 cache (Redis with in-memory fallback for 24h TTL)
+        sha_hash = hashlib.sha256(problem_statement.strip().encode("utf-8")).hexdigest()
+        cache_key = f"athena:decomp:{sha_hash}"
+
+        # 1. Try Redis cache
+        if settings.REDIS_URL:
+            try:
+                import redis
+                r = redis.Redis.from_url(settings.REDIS_URL, decode_responses=True, socket_timeout=1.0)
+                cached_raw = r.get(cache_key)
+                if cached_raw:
+                    logger.info(f"Decomposition cache HIT in Redis for SHA {sha_hash[:8]}")
+                    cached_data = json.loads(cached_raw)
+                    return ProblemAnalysisOutput.model_validate(cached_data), 5, 0
+            except Exception:
+                pass
+
+        # 2. Try in-memory fallback cache
+        if cache_key in _DECOMPOSITION_MEMORY_CACHE:
+            logger.info(f"Decomposition cache HIT in memory for SHA {sha_hash[:8]}")
+            return ProblemAnalysisOutput.model_validate(_DECOMPOSITION_MEMORY_CACHE[cache_key]), 5, 0
+
+        # Execute LLM reasoning
+        output, latency, tokens = self.execute(user_content=problem_statement)
+
+        # Store in cache with 24-hour TTL (86400 seconds)
+        try:
+            dumped = output.model_dump()
+            _DECOMPOSITION_MEMORY_CACHE[cache_key] = dumped
+            if settings.REDIS_URL:
+                try:
+                    import redis
+                    r = redis.Redis.from_url(settings.REDIS_URL, decode_responses=True, socket_timeout=1.0)
+                    r.setex(cache_key, 86400, json.dumps(dumped))
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        return output, latency, tokens

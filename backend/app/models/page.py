@@ -10,6 +10,7 @@ class AgentType(str, enum.Enum):
     MARKET = "market"
     FEASIBILITY = "feasibility"
     ROADMAP = "roadmap"
+    VALIDATION = "validation"
 
 class Page(Base):
     """

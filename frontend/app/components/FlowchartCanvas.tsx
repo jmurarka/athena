@@ -31,7 +31,8 @@ import {
   CheckCircle2, 
   Palette,
   Sparkles,
-  ArrowRight
+  ArrowRight,
+  Download
 } from 'lucide-react';
 import { fetchWithAuth } from '@/lib/api';
 
@@ -337,6 +338,19 @@ export default function FlowchartCanvas({
     }
   };
 
+  // Export Handlers
+  const handleExportSVG = () => {
+    if (!projectId) return;
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+    window.open(`${apiUrl}/api/projects/${projectId}/canvas/export`, '_blank');
+  };
+
+  const handleExportZip = () => {
+    if (!projectId) return;
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+    window.open(`${apiUrl}/api/projects/${projectId}/export`, '_blank');
+  };
+
   return (
     <div className="flex-1 flex flex-col h-full bg-[#fbfbfa] font-sans relative overflow-hidden select-none">
       {/* Canvas Top Bar */}
@@ -353,6 +367,26 @@ export default function FlowchartCanvas({
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            onClick={handleExportSVG}
+            disabled={!projectId}
+            className="flex items-center gap-1 px-2.5 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium transition disabled:opacity-50"
+            title="Export architecture diagram as standalone SVG"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>SVG</span>
+          </button>
+
+          <button
+            onClick={handleExportZip}
+            disabled={!projectId}
+            className="flex items-center gap-1 px-2.5 py-1 rounded bg-[#ede9fe] hover:bg-[#ddd6fe] text-[#6d28d9] text-xs font-medium transition disabled:opacity-50"
+            title="Download full project archive with specifications, markdown, and diagram"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Export ZIP</span>
+          </button>
+
           <button
             onClick={handleSaveCanvas}
             disabled={isSaving || !projectId}
